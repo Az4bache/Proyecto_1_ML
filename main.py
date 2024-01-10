@@ -11,6 +11,8 @@ app=FastAPI(debug=True)
 base = pd.read_csv('maindb.csv')
 reviews = pd.read_csv('clean_output_user_reviews.csv')
 games_reviews=pd.read_csv('steam_games_devel.csv')
+sample=pd.read_csv('sample.csv')
+sample.drop('Unnamed: 0',axis=1,inplace=True)
 
 
 @app.get('/')
@@ -76,3 +78,48 @@ def sentiment_analysis(developer: str) -> dict:
         }
     }
     return results_dict
+
+
+sample=sample.head(10000)
+tfidf = TfidfVectorizer(stop_words='english')
+sample=sample.fillna("")
+
+tdfid_matrix=tfidf.fit_transform(sample['review'])
+cosine_similarity=linear_kernel(tdfid_matrix,tdfid_matrix)
+
+@app.get('/recomendation_id/{product_id}')
+def game_recomendation(product_id: int):
+    if product_id not in sample['id'].values:
+        return {'Message': 'Game id does not exist.'}
+    
+    # We obtain the game genres with the product_id
+    genres = sample.columns[3:24]  # We obtain the names of the genre columns
+    
+    # Filter the dataframe to include the games with similar genres but with different titles.
+    filtered_df = sample[(sample[genres] == 1).any(axis=1) & (sample['id'] != product_id)]
+    
+    # Calculating the similarities of the cosine
+    tdfid_matrix_filtered = tfidf.transform(filtered_df['review'])
+    cosine_similarity_filtered = linear_kernel(tdfid_matrix_filtered, tdfid_matrix_filtered)
+    
+    idx = sample[sample['id'] == product_id].index[0]
+    sim_cosine = list(enumerate(cosine_similarity_filtered[idx]))
+    sim_scores = sorted(sim_cosine, key=lambda x: x[1], reverse=True)
+    sim_ind = [i for i, _ in sim_scores[1:6]]
+    sim_games = filtered_df['title'].iloc[sim_ind].values.tolist()
+    
+    return {'Recomended Games': list(sim_games)}
+
+
+
+@app.get('/game_recomendation/{game_id}')
+def game_recomendation(game_id: int):
+    if game_id not in sample['id'].values:
+        return {'Message': 'Game id does not exist.'}
+    title = sample.loc[sample['id'] == game_id, 'title'].iloc[0]
+    idx = sample[sample['title'] == title].index[0]
+    sim_cosine = list(enumerate(cosine_similarity[idx]))
+    sim_scores = sorted(sim_cosine, key=lambda x: x[1], reverse=True)
+    sim_ind = [i for i, _ in sim_scores[1:6]]
+    sim_games = sample['title'].iloc[sim_ind].values.tolist()
+    return {'juegos recomendados': list(sim_games)}
